@@ -39,7 +39,7 @@ const CELERY_NOTE = `### Celery (when present)
 - tasks.py per app or tasks/ package; broker URL from env.
 - Do not import Django models at module level in tasks without django.setup pattern where needed.`;
 
-export function getFrameworkGuidelines(frameworkId: string, secondaryIds: string[]): string {
+export function getPythonFrameworkGuidelines(frameworkId: string, secondaryIds: string[]): string {
   const parts: string[] = [];
 
   switch (frameworkId) {

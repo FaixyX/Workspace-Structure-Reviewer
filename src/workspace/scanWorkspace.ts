@@ -1,9 +1,11 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { collectDependencyText } from '../detection/python/utils';
+import { isManifestPath, collectManifestText } from '../detection/shared/manifests';
 import { detectStack } from '../detection/detectStack';
 import {
+  JAVASCRIPT_EXTENSIONS,
   MAX_CHARS_PER_FILE,
+  MAX_JAVASCRIPT_SAMPLES,
   MAX_PYTHON_SAMPLES,
   MAX_SOURCE_FILES,
   SOURCE_EXTENSIONS,
@@ -22,62 +24,67 @@ export async function scanWorkspace(): Promise<WorkspaceScanResult> {
 
   const fileContents = new Map<string, string>();
   const pythonPaths: string[] = [];
+  const javascriptPaths: string[] = [];
   const sourcePaths: string[] = [];
 
   for (const file of allFiles) {
     const rel = path.relative(root, file.fsPath).replace(/\\/g, '/');
     const ext = path.extname(file.fsPath).toLowerCase();
     if (ext === '.py') pythonPaths.push(rel);
+    if (JAVASCRIPT_EXTENSIONS.has(ext)) javascriptPaths.push(rel);
     if (SOURCE_EXTENSIONS.has(ext)) sourcePaths.push(rel);
   }
 
   const pathsToRead = new Set<string>();
   for (const rel of relativePaths) {
-    const base = rel.split('/').pop() ?? rel;
-    if (
-      /^(requirements.*\.txt|pyproject\.toml|pipfile|setup\.py|setup\.cfg)$/i.test(base) ||
-      rel.includes('requirements/')
-    ) {
-      pathsToRead.add(rel);
-    }
+    if (isManifestPath(rel)) pathsToRead.add(rel);
   }
 
   const sampleForReview = sourcePaths.slice(0, MAX_SOURCE_FILES);
   const pythonForDetection = pythonPaths.slice(0, MAX_PYTHON_SAMPLES);
-  for (const p of [...sampleForReview, ...pythonForDetection]) {
+  const jsForDetection = javascriptPaths.slice(0, MAX_JAVASCRIPT_SAMPLES);
+
+  for (const p of [...sampleForReview, ...pythonForDetection, ...jsForDetection]) {
     pathsToRead.add(p);
   }
 
   let fileContentsBlock = '';
   let pythonSampleText = '';
+  let javascriptSampleText = '';
 
   for (const rel of pathsToRead) {
     const uri = vscode.Uri.file(path.join(root, rel));
     try {
       const doc = await vscode.workspace.openTextDocument(uri);
       const text = doc.getText();
+      const slice = text.slice(0, MAX_CHARS_PER_FILE);
       fileContents.set(rel, text);
 
       if (rel.endsWith('.py')) {
-        pythonSampleText += `\n\n=== ${rel} ===\n${text.slice(0, MAX_CHARS_PER_FILE)}`;
+        pythonSampleText += `\n\n=== ${rel} ===\n${slice}`;
       }
-
+      if (JAVASCRIPT_EXTENSIONS.has(path.extname(rel).toLowerCase())) {
+        javascriptSampleText += `\n\n=== ${rel} ===\n${slice}`;
+      }
       if (sampleForReview.includes(rel)) {
-        fileContentsBlock += `\n\n=== ${rel} ===\n${text.slice(0, MAX_CHARS_PER_FILE)}`;
+        fileContentsBlock += `\n\n=== ${rel} ===\n${slice}`;
       }
     } catch {
       // skip unreadable
     }
   }
 
-  const dependencyText = collectDependencyText(relativePaths, fileContents);
+  const manifestText = collectManifestText(relativePaths, fileContents);
   const hasPythonFiles = pythonPaths.length > 0;
+  const hasJavaScriptFiles = javascriptPaths.length > 0;
 
   const stack = detectStack({
     relativePaths,
-    dependencyText,
+    manifestText,
     pythonSampleText,
+    javascriptSampleText,
     hasPythonFiles,
+    hasJavaScriptFiles,
   });
 
   const stackBlock = formatStackBlock(stack);
@@ -91,9 +98,11 @@ export async function scanWorkspace(): Promise<WorkspaceScanResult> {
   return {
     contextText,
     relativePaths,
-    dependencyText,
+    manifestText,
     pythonSampleText,
+    javascriptSampleText,
     hasPythonFiles,
+    hasJavaScriptFiles,
     stack,
   };
 }
@@ -105,7 +114,7 @@ function formatStackBlock(stack: WorkspaceScanResult['stack']): string {
 
   const lines = [
     'DETECTED STACK:',
-    `- Language: ${stack.language}`,
+    `- Ecosystem: ${stack.language}`,
     `- Framework: ${stack.primary.name} (${stack.primary.id}, ${stack.primary.confidence} confidence)`,
     `- Detection signals: ${stack.primary.signals.join('; ')}`,
   ];

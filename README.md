@@ -68,23 +68,41 @@ The legacy setting `codeReviewer.apiKey` still works as a fallback for Claude.
 ## How it works
 
 1. Scans your workspace file tree (excludes `node_modules`, `.git`, `dist`, `.venv`, etc.)
-2. **Detects Python framework** (Django, FastAPI, Flask, Starlette, or general Python) from dependencies, paths, and source patterns
+2. **Detects project framework** (Python and JavaScript/TypeScript stacks) from manifests, paths, and source patterns
 3. Reads dependency manifests + a sample of source files
 4. Sends a **framework-aware** prompt to your selected LLM (Claude, OpenAI, or Gemini)
 5. Streams the response into 4 collapsible sections in real time
 
-### Python framework detection (v1)
+### Framework detection
+
+**Python**
 
 | Framework | Signals (examples) |
 |-----------|-------------------|
-| **Django** | `manage.py`, `settings.py`, `django` in requirements, `INSTALLED_APPS` |
-| **FastAPI** | `fastapi` dep, `FastAPI()`, route decorators, `APIRouter` |
-| **Flask** | `flask` dep, `Flask(__name__)`, `@app.route`, Blueprints |
-| **Starlette** | `starlette` dep (often secondary to FastAPI) |
-| **Celery** | Listed as related stack when detected |
-| **Python (general)** | `.py` files but no strong web framework match |
+| **Django** | `manage.py`, `settings.py`, `django` in requirements |
+| **FastAPI** | `fastapi` dep, `FastAPI()`, `APIRouter` |
+| **Flask** | `flask` dep, `Flask(__name__)`, Blueprints |
+| **Starlette** | Often secondary to FastAPI |
+| **Celery** | Related stack when detected |
+| **Python (general)** | `.py` without a strong web framework match |
 
-More frameworks and languages can be added under `src/detection/`.
+**JavaScript / TypeScript**
+
+| Framework | Signals (examples) |
+|-----------|-------------------|
+| **Next.js** | `next` dep, `next.config`, `app/` or `pages/` |
+| **React** | `react` dep, `.tsx`/`.jsx`, component patterns |
+| **Vue** | `vue` dep, `.vue` SFCs, `createApp` |
+| **Nuxt** | `nuxt` dep, `nuxt.config`, `pages/` |
+| **Angular** | `@angular/core`, `angular.json`, `@Component` |
+| **NestJS** | `@nestjs/core`, `@Module`, `NestFactory` |
+| **Express** | `express` dep, `app.get` / routers |
+| **Svelte** | `svelte` / SvelteKit, `.svelte` files |
+| **Node (general)** | `package.json` without a strong framework match |
+
+Monorepos with both Python and JS pick the **highest-confidence** primary framework; others appear as related stacks.
+
+Add detectors under `src/detection/python/detectors/` and `src/detection/javascript/detectors/`.
 
 ## Project structure
 
@@ -95,9 +113,12 @@ src/
   config/                   # Settings & API keys
   workspace/                # File tree & sampling
   detection/                # Framework detection
-    python/
-      detectors/            # Django, FastAPI, Flask, …
-  prompts/                  # LLM prompts & per-framework rules
+    shared/                 # Manifest parsing, path utils
+    python/detectors/        # Django, FastAPI, Flask, …
+    javascript/detectors/   # Next.js, React, Vue, NestJS, …
+  prompts/
+    python/                 # Python framework rules
+    javascript/             # JS/TS framework rules
   llm/                      # Provider streaming (Claude, OpenAI, Gemini)
   review/                   # Review orchestration
 ```
