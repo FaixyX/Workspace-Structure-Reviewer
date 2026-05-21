@@ -1,5 +1,14 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import {
+  getSelectedProvider,
+  missingKeyMessage,
+  resolveApiKey,
+  settingsFilterForProvider,
+} from './config';
+import { streamReview } from './llm/stream';
+import { isProviderId, ProviderId, PROVIDERS } from './llm/types';
+import { REVIEW_SYSTEM_PROMPT, buildReviewUserPrompt } from './prompts';
 
 export class ReviewPanelProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'codeReviewer.panel';
@@ -21,15 +30,29 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.html = this._getHtmlForWebview();
 
+    this._post({
+      type: 'config',
+      provider: getSelectedProvider(),
+    });
+
     webviewView.webview.onDidReceiveMessage(async (message) => {
       switch (message.command) {
         case 'review':
-          await this._runReview(message.apiKey);
+          await this._runReview(message.provider, message.apiKey);
+          break;
+        case 'saveProvider':
+          if (isProviderId(message.provider)) {
+            await vscode.workspace
+              .getConfiguration('codeReviewer')
+              .update('provider', message.provider, vscode.ConfigurationTarget.Global);
+          }
           break;
         case 'openSettings':
           vscode.commands.executeCommand(
             'workbench.action.openSettings',
-            'codeReviewer.apiKey'
+            settingsFilterForProvider(
+              isProviderId(message.provider) ? message.provider : getSelectedProvider()
+            )
           );
           break;
       }
@@ -38,14 +61,15 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
 
   // ─── Review orchestration ────────────────────────────────────────────────
 
-  private async _runReview(inlineApiKey?: string) {
+  private async _runReview(providerRaw?: string, inlineApiKey?: string) {
     if (!this._view) return;
 
-    const config = vscode.workspace.getConfiguration('codeReviewer');
-    const apiKey = inlineApiKey || config.get<string>('apiKey') || '';
+    const provider: ProviderId =
+      providerRaw && isProviderId(providerRaw) ? providerRaw : getSelectedProvider();
+    const apiKey = resolveApiKey(provider, inlineApiKey);
 
     if (!apiKey) {
-      this._post({ type: 'error', text: 'No API key found. Enter it above or save it in Settings (codeReviewer.apiKey).' });
+      this._post({ type: 'error', text: missingKeyMessage(provider) });
       return;
     }
 
@@ -58,7 +82,15 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
 
     try {
       const context = await this._buildWorkspaceContext();
-      await this._streamClaude(apiKey, context);
+      const userPrompt = buildReviewUserPrompt(context);
+      await streamReview(
+        provider,
+        apiKey,
+        REVIEW_SYSTEM_PROMPT,
+        userPrompt,
+        (text) => this._post({ type: 'chunk', text })
+      );
+      this._post({ type: 'done' });
     } catch (err: any) {
       this._post({ type: 'error', text: err.message ?? String(err) });
     }
@@ -108,94 +140,6 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
     return `PROJECT FILE TREE:\n${fileTree}\n\nSOURCE FILE SAMPLES:${fileContents}`;
   }
 
-  // ─── Claude API (streaming) ──────────────────────────────────────────────
-
-  private async _streamClaude(apiKey: string, workspaceContext: string) {
-    const systemPrompt = `You are a senior software engineer doing a focused code review.
-Your job is to analyze the provided workspace and give feedback on EXACTLY these 4 areas — nothing else.
-Be direct, specific, and actionable. Reference real file/variable names from the provided context.`;
-
-    const userPrompt = `${workspaceContext}
-
----
-
-Review the workspace above and respond using EXACTLY this format (4 sections, no extras):
-
-## 🗂️ File Structure
-[Analyze the overall folder and file organization. Call out missing folders, wrong placement, overly deep nesting, missing index files, etc. Give concrete fixes.]
-
-## 📁 File Names
-[Analyze file names across the project. Flag inconsistent casing (e.g. mixing camelCase and kebab-case), vague names like utils.ts or helpers.js, missing convention, etc. Suggest better names.]
-
-## 📝 Variable Naming
-[Scan the source code samples. Point out bad variable/function/class names — vague names, Hungarian notation, inconsistent casing, single-letter vars outside loops, etc. Show bad → good examples.]
-
-## 🧩 Code Modularity
-[From the file tree and source samples, assess separation of concerns: god files, mixed responsibilities, duplicated logic, tight coupling, missing boundaries (utils vs domain vs UI), and when modules should be split or merged. Cite specific files.]
-
-Each section: 4–7 bullet points. Be specific. Use the actual names from the project.`;
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2800,
-        stream: true,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
-      }),
-    });
-
-    if (!response.ok) {
-      let msg = `API error ${response.status}`;
-      try {
-        const body = (await response.json()) as any;
-        msg = body?.error?.message ?? msg;
-      } catch {}
-      throw new Error(msg);
-    }
-
-    if (!response.body) throw new Error('No response body from API.');
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const raw = line.slice(6).trim();
-        if (!raw || raw === '[DONE]') continue;
-
-        try {
-          const parsed = JSON.parse(raw);
-          if (
-            parsed.type === 'content_block_delta' &&
-            parsed.delta?.type === 'text_delta'
-          ) {
-            this._post({ type: 'chunk', text: parsed.delta.text });
-          }
-        } catch {
-          // ignore malformed SSE lines
-        }
-      }
-    }
-
-    this._post({ type: 'done' });
-  }
-
   // ─── Helper ──────────────────────────────────────────────────────────────
 
   private _post(msg: Record<string, unknown>) {
@@ -205,6 +149,10 @@ Each section: 4–7 bullet points. Be specific. Use the actual names from the pr
   // ─── Webview HTML ────────────────────────────────────────────────────────
 
   private _getHtmlForWebview(): string {
+    const providerOptions = PROVIDERS.map(
+      (p) => `<option value="${p.id}">${p.label}</option>`
+    ).join('');
+
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -234,7 +182,25 @@ Each section: 4–7 bullet points. Be specific. Use the actual names from the pr
   .header-title { font-size: 13px; font-weight: 600; }
   .header-sub { font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 1px; }
 
-  /* ── API key row ── */
+  /* ── Provider + API key ── */
+  .provider-row {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 6px;
+  }
+
+  select {
+    flex: 1;
+    background: var(--vscode-dropdown-background);
+    color: var(--vscode-dropdown-foreground);
+    border: 1px solid var(--vscode-dropdown-border, #555);
+    border-radius: 3px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-family: inherit;
+    min-width: 0;
+  }
+
   .api-row {
     display: flex;
     gap: 5px;
@@ -405,13 +371,19 @@ Each section: 4–7 bullet points. Be specific. Use the actual names from the pr
   </div>
 </div>
 
+<div class="provider-row">
+  <select id="providerSelect" onchange="onProviderChange()">
+    ${providerOptions}
+  </select>
+</div>
+
 <div class="api-row">
-  <input type="password" id="apiKeyInput" placeholder="sk-ant-api… (or save in Settings)" />
+  <input type="password" id="apiKeyInput" placeholder="API key (or save in Settings)" />
   <button class="icon-btn" title="Open Settings" onclick="openSettings()">⚙</button>
 </div>
-<div class="hint">
-  Key is never stored here. Save it permanently via
-  <a onclick="openSettings()">Settings → codeReviewer.apiKey</a>.
+<div class="hint" id="keyHint">
+  Keys stay in this session unless saved in Settings.
+  <a onclick="openSettings()">Open provider settings</a>
 </div>
 
 <button id="reviewBtn" onclick="startReview()">
@@ -472,6 +444,28 @@ Each section: 4–7 bullet points. Be specific. Use the actual names from the pr
   let fullText = '';
   let isStreaming = false;
 
+  const PLACEHOLDERS = {
+    claude: 'sk-ant-api…',
+    openai: 'sk-…',
+    gemini: 'AIza…',
+  };
+
+  function getProvider() {
+    return document.getElementById('providerSelect').value;
+  }
+
+  function updateProviderUi(clearKey) {
+    const provider = getProvider();
+    document.getElementById('apiKeyInput').placeholder =
+      PLACEHOLDERS[provider] + ' (or save in Settings)';
+    if (clearKey) document.getElementById('apiKeyInput').value = '';
+  }
+
+  function onProviderChange() {
+    updateProviderUi(true);
+    vscode.postMessage({ command: 'saveProvider', provider: getProvider() });
+  }
+
   // ── Collapse/expand sections ──────────────────────────────────────────────
   function toggleSection(id) {
     document.getElementById('sec-' + id).classList.toggle('collapsed');
@@ -481,11 +475,11 @@ Each section: 4–7 bullet points. Be specific. Use the actual names from the pr
   function startReview() {
     if (isStreaming) return;
     const apiKey = document.getElementById('apiKeyInput').value.trim();
-    vscode.postMessage({ command: 'review', apiKey });
+    vscode.postMessage({ command: 'review', provider: getProvider(), apiKey });
   }
 
   function openSettings() {
-    vscode.postMessage({ command: 'openSettings' });
+    vscode.postMessage({ command: 'openSettings', provider: getProvider() });
   }
 
   // ── UI state helpers ──────────────────────────────────────────────────────
@@ -553,6 +547,11 @@ Each section: 4–7 bullet points. Be specific. Use the actual names from the pr
   // ── Message handler ───────────────────────────────────────────────────────
   window.addEventListener('message', (event) => {
     const msg = event.data;
+
+    if (msg.type === 'config' && msg.provider) {
+      document.getElementById('providerSelect').value = msg.provider;
+      updateProviderUi(false);
+    }
 
     if (msg.type === 'start') {
       fullText = '';

@@ -7,7 +7,7 @@ AI-powered side panel that reviews your workspace and gives focused feedback on:
 - 📝 **Variable Naming** — bad names, inconsistent casing, vague identifiers
 - 🧩 **Code Modularity** — separation of concerns, god files, coupling, duplication
 
-Powered by Claude (Anthropic).
+Works with **Claude**, **OpenAI**, or **Gemini** — you choose the provider and bring your own API key.
 
 ---
 
@@ -45,15 +45,23 @@ Or: Extensions panel → `...` menu → **Install from VSIX...**
 
 ---
 
-## API Key
+## LLM provider & API keys
 
-You need an [Anthropic API key](https://console.anthropic.com/).
+Pick a provider in the panel dropdown, then add the matching key:
 
-**Option A — one-time per session:** paste it directly in the panel's input field.
+| Provider | Get a key | Settings key |
+|----------|-----------|--------------|
+| Claude | [console.anthropic.com](https://console.anthropic.com/) | `codeReviewer.claudeApiKey` |
+| OpenAI | [platform.openai.com](https://platform.openai.com/api-keys) | `codeReviewer.openaiApiKey` |
+| Gemini | [aistudio.google.com](https://aistudio.google.com/apikey) | `codeReviewer.geminiApiKey` |
+
+**Option A — per session:** paste the key in the panel (not saved in the webview).
 
 **Option B — save permanently:**  
-`Settings` → search `codeReviewer.apiKey` → paste your key.  
-(Stored in VS Code's user settings, never sent anywhere except Anthropic's API.)
+`Settings` → search `codeReviewer` → set `codeReviewer.provider` and the API key for your provider.  
+Keys are stored in VS Code user settings and sent only to that provider's API.
+
+The legacy setting `codeReviewer.apiKey` still works as a fallback for Claude.
 
 ---
 
@@ -61,5 +69,5 @@ You need an [Anthropic API key](https://console.anthropic.com/).
 
 1. Scans your workspace file tree (excludes `node_modules`, `.git`, `dist`, etc.)
 2. Reads a sample of source files (up to 20 files, 1500 chars each)
-3. Sends a structured prompt to `claude-sonnet-4-20250514`
+3. Sends a structured prompt to your selected provider (Claude Sonnet, GPT-4o mini, or Gemini 2.0 Flash)
 4. Streams the response back into 4 collapsible sections in real time

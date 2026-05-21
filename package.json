@@ -29,11 +29,42 @@
     "configuration": {
       "title": "Code Reviewer",
       "properties": {
+        "codeReviewer.provider": {
+          "type": "string",
+          "enum": ["claude", "openai", "gemini"],
+          "enumDescriptions": [
+            "Anthropic Claude",
+            "OpenAI GPT",
+            "Google Gemini"
+          ],
+          "default": "claude",
+          "description": "Default LLM provider for workspace reviews.",
+          "scope": "application"
+        },
+        "codeReviewer.claudeApiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "[Anthropic](https://console.anthropic.com/) API key. Stored locally in user settings.",
+          "scope": "application"
+        },
+        "codeReviewer.openaiApiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "[OpenAI](https://platform.openai.com/api-keys) API key. Stored locally in user settings.",
+          "scope": "application"
+        },
+        "codeReviewer.geminiApiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "[Google AI Studio](https://aistudio.google.com/apikey) Gemini API key. Stored locally in user settings.",
+          "scope": "application"
+        },
         "codeReviewer.apiKey": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Your [Anthropic API key](https://console.anthropic.com/). Keep this private.",
-          "scope": "application"
+          "markdownDescription": "Deprecated — use `codeReviewer.claudeApiKey` instead.",
+          "scope": "application",
+          "deprecationMessage": "Use codeReviewer.claudeApiKey"
         }
       }
     }
