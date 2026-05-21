@@ -1,6 +1,15 @@
+import { mergeUsage } from '../usage/estimate';
+import { TokenUsage } from '../usage/types';
+import { getModelId } from '../usage/pricing';
 import { ProviderId } from './types';
 
 export type ChunkHandler = (text: string) => void;
+
+export interface StreamReviewResult {
+  provider: ProviderId;
+  model: string;
+  usage: TokenUsage;
+}
 
 async function readSseStream(
   response: Response,
@@ -43,12 +52,41 @@ async function parseError(response: Response): Promise<string> {
   return msg;
 }
 
+interface UsageAccumulator {
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+function parseClaudeUsage(parsed: Record<string, unknown>, acc: UsageAccumulator): void {
+  if (parsed.type === 'message_start') {
+    const message = parsed.message as Record<string, unknown> | undefined;
+    const usage = message?.usage as Record<string, number> | undefined;
+    if (usage?.input_tokens !== undefined) {
+      acc.inputTokens = usage.input_tokens;
+    }
+  }
+  if (parsed.type === 'message_delta') {
+    const usage = parsed.usage as Record<string, number> | undefined;
+    if (usage?.output_tokens !== undefined) {
+      acc.outputTokens = usage.output_tokens;
+    }
+  }
+  if (parsed.type === 'message_stop') {
+    const usage = (parsed as Record<string, unknown>).usage as Record<string, number> | undefined;
+    if (usage?.input_tokens !== undefined) acc.inputTokens = usage.input_tokens;
+    if (usage?.output_tokens !== undefined) acc.outputTokens = usage.output_tokens;
+  }
+}
+
 async function streamClaude(
   apiKey: string,
   systemPrompt: string,
   userPrompt: string,
   onChunk: ChunkHandler
-): Promise<void> {
+): Promise<UsageAccumulator> {
+  const acc: UsageAccumulator = {};
+  const inputText = systemPrompt + userPrompt;
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -67,20 +105,36 @@ async function streamClaude(
 
   if (!response.ok) throw new Error(await parseError(response));
 
+  let outputText = '';
+
   await readSseStream(response, (raw) => {
     try {
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      parseClaudeUsage(parsed, acc);
+
       if (
         parsed.type === 'content_block_delta' &&
-        parsed.delta?.type === 'text_delta' &&
-        parsed.delta.text
+        (parsed.delta as Record<string, unknown>)?.type === 'text_delta'
       ) {
-        onChunk(parsed.delta.text);
+        const text = (parsed.delta as Record<string, string>).text;
+        if (text) {
+          outputText += text;
+          onChunk(text);
+        }
       }
     } catch {
       // ignore malformed SSE
     }
   });
+
+  if (acc.inputTokens === undefined) {
+    acc.inputTokens = mergeUsage(null, inputText, '').inputTokens;
+  }
+  if (acc.outputTokens === undefined) {
+    acc.outputTokens = mergeUsage(null, '', outputText).outputTokens;
+  }
+
+  return acc;
 }
 
 async function streamOpenAI(
@@ -88,7 +142,10 @@ async function streamOpenAI(
   systemPrompt: string,
   userPrompt: string,
   onChunk: ChunkHandler
-): Promise<void> {
+): Promise<UsageAccumulator> {
+  const acc: UsageAccumulator = {};
+  const inputText = systemPrompt + userPrompt;
+
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -99,6 +156,7 @@ async function streamOpenAI(
       model: 'gpt-4o-mini',
       max_tokens: 2800,
       stream: true,
+      stream_options: { include_usage: true },
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -108,15 +166,36 @@ async function streamOpenAI(
 
   if (!response.ok) throw new Error(await parseError(response));
 
+  let outputText = '';
+
   await readSseStream(response, (raw) => {
     try {
-      const parsed = JSON.parse(raw);
-      const text = parsed.choices?.[0]?.delta?.content;
-      if (text) onChunk(text);
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const usage = parsed.usage as Record<string, number> | undefined;
+      if (usage) {
+        if (usage.prompt_tokens !== undefined) acc.inputTokens = usage.prompt_tokens;
+        if (usage.completion_tokens !== undefined) acc.outputTokens = usage.completion_tokens;
+      }
+
+      const text = (parsed.choices as Array<Record<string, unknown>>)?.[0]
+        ?.delta as Record<string, string> | undefined;
+      if (text?.content) {
+        outputText += text.content;
+        onChunk(text.content);
+      }
     } catch {
       // ignore malformed SSE
     }
   });
+
+  if (acc.outputTokens === undefined) {
+    acc.outputTokens = mergeUsage(null, '', outputText).outputTokens;
+  }
+  if (acc.inputTokens === undefined) {
+    acc.inputTokens = mergeUsage(null, inputText, '').inputTokens;
+  }
+
+  return acc;
 }
 
 async function streamGemini(
@@ -124,7 +203,9 @@ async function streamGemini(
   systemPrompt: string,
   userPrompt: string,
   onChunk: ChunkHandler
-): Promise<void> {
+): Promise<UsageAccumulator> {
+  const acc: UsageAccumulator = {};
+  const inputText = systemPrompt + userPrompt;
   const model = 'gemini-2.0-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`;
 
@@ -143,18 +224,47 @@ async function streamGemini(
 
   if (!response.ok) throw new Error(await parseError(response));
 
+  let outputText = '';
+
   await readSseStream(response, (raw) => {
     try {
-      const parsed = JSON.parse(raw);
-      const parts = parsed.candidates?.[0]?.content?.parts;
-      if (!Array.isArray(parts)) return;
-      for (const part of parts) {
-        if (part.text) onChunk(part.text);
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const meta = parsed.usageMetadata as Record<string, number> | undefined;
+      if (meta) {
+        if (meta.promptTokenCount !== undefined) acc.inputTokens = meta.promptTokenCount;
+        if (meta.candidatesTokenCount !== undefined) {
+          acc.outputTokens = meta.candidatesTokenCount;
+        }
+      }
+
+      const parts = (
+        (parsed.candidates as Array<Record<string, unknown>>)?.[0]?.content as Record<
+          string,
+          unknown
+        >
+      )?.parts as Array<Record<string, string>> | undefined;
+
+      if (Array.isArray(parts)) {
+        for (const part of parts) {
+          if (part.text) {
+            outputText += part.text;
+            onChunk(part.text);
+          }
+        }
       }
     } catch {
       // ignore malformed SSE
     }
   });
+
+  if (acc.inputTokens === undefined) {
+    acc.inputTokens = mergeUsage(null, inputText, '').inputTokens;
+  }
+  if (acc.outputTokens === undefined) {
+    acc.outputTokens = mergeUsage(null, '', outputText).outputTokens;
+  }
+
+  return acc;
 }
 
 export async function streamReview(
@@ -163,16 +273,43 @@ export async function streamReview(
   systemPrompt: string,
   userPrompt: string,
   onChunk: ChunkHandler
-): Promise<void> {
+): Promise<StreamReviewResult> {
+  const inputText = systemPrompt + userPrompt;
+  let outputText = '';
+  const onChunkWithCapture: ChunkHandler = (text) => {
+    outputText += text;
+    onChunk(text);
+  };
+
+  let acc: UsageAccumulator;
   switch (provider) {
     case 'claude':
-      await streamClaude(apiKey, systemPrompt, userPrompt, onChunk);
+      acc = await streamClaude(apiKey, systemPrompt, userPrompt, onChunkWithCapture);
       break;
     case 'openai':
-      await streamOpenAI(apiKey, systemPrompt, userPrompt, onChunk);
+      acc = await streamOpenAI(apiKey, systemPrompt, userPrompt, onChunkWithCapture);
       break;
     case 'gemini':
-      await streamGemini(apiKey, systemPrompt, userPrompt, onChunk);
+      acc = await streamGemini(apiKey, systemPrompt, userPrompt, onChunkWithCapture);
       break;
   }
+
+  const usage = mergeUsage(
+    acc.inputTokens !== undefined || acc.outputTokens !== undefined
+      ? {
+          inputTokens: acc.inputTokens,
+          outputTokens: acc.outputTokens,
+          totalTokens: (acc.inputTokens ?? 0) + (acc.outputTokens ?? 0),
+          source: 'api' as const,
+        }
+      : null,
+    inputText,
+    outputText
+  );
+
+  return {
+    provider,
+    model: getModelId(provider),
+    usage,
+  };
 }

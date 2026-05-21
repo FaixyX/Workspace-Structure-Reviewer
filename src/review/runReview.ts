@@ -2,6 +2,14 @@ import { missingKeyMessage, resolveApiKey } from '../config/providerConfig';
 import { streamReview } from '../llm/stream';
 import { ProviderId } from '../llm/types';
 import { REVIEW_SYSTEM_PROMPT, buildReviewUserPrompt } from '../prompts/reviewPrompt';
+import { buildEstimatedUsage } from '../usage/estimate';
+import {
+  toUsageDisplayPayload,
+  buildPreviewPayload,
+  UsageDisplayPayload,
+} from '../usage/formatPayload';
+import { calculateCost, getModelId } from '../usage/pricing';
+import { UsageSessionStore } from '../usage/sessionStore';
 import { scanWorkspace } from '../workspace/scanWorkspace';
 import { StackDetectionResult } from '../detection/types';
 
@@ -10,6 +18,8 @@ export interface ReviewCallbacks {
   onDetected: (stack: StackDetectionResult) => void;
   onStart: () => void;
   onChunk: (text: string) => void;
+  onUsagePreview: (usage: UsageDisplayPayload['review']) => void;
+  onUsageFinal: (usage: UsageDisplayPayload) => void;
   onDone: () => void;
   onError: (message: string) => void;
 }
@@ -17,6 +27,7 @@ export interface ReviewCallbacks {
 export async function runReview(
   provider: ProviderId,
   inlineApiKey: string | undefined,
+  sessionStore: UsageSessionStore,
   callbacks: ReviewCallbacks
 ): Promise<void> {
   const apiKey = resolveApiKey(provider, inlineApiKey);
@@ -39,14 +50,39 @@ export async function runReview(
   callbacks.onDetected(scan.stack);
   callbacks.onStart();
 
+  const userPrompt = buildReviewUserPrompt(scan.contextText, scan.stack);
+  const inputText = REVIEW_SYSTEM_PROMPT + userPrompt;
+  const model = getModelId(provider);
+  let outputText = '';
+
   try {
-    const userPrompt = buildReviewUserPrompt(scan.contextText, scan.stack);
-    await streamReview(
+    const result = await streamReview(
       provider,
       apiKey,
       REVIEW_SYSTEM_PROMPT,
       userPrompt,
-      callbacks.onChunk
+      (text) => {
+        outputText += text;
+        callbacks.onChunk(text);
+
+        const estimated = buildEstimatedUsage(inputText, outputText);
+        const cost = calculateCost(model, estimated);
+        callbacks.onUsagePreview(
+          buildPreviewPayload(
+            provider,
+            model,
+            estimated.inputTokens,
+            estimated.outputTokens,
+            cost.inputUsd,
+            cost.outputUsd
+          ).review
+        );
+      }
+    );
+
+    const { report, session } = sessionStore.recordReview(provider, result.usage);
+    callbacks.onUsageFinal(
+      toUsageDisplayPayload({ review: report, session })
     );
     callbacks.onDone();
   } catch (err: unknown) {

@@ -1,124 +1,187 @@
-# Code Reviewer — VS Code / Cursor Extension
+# Code Reviewer
 
-AI-powered side panel that reviews your workspace and gives focused feedback on:
+**Framework-aware AI workspace reviews** for VS Code and Cursor — structure, naming, modularity, and estimated API spend in one side panel.
 
-- 🗂️ **File Structure** — folder organization, missing conventions
-- 📁 **File Names** — naming inconsistencies across the project
-- 📝 **Variable Naming** — bad names, inconsistent casing, vague identifiers
-- 🧩 **Code Modularity** — separation of concerns, god files, coupling, duplication
-
-Works with **Claude**, **OpenAI**, or **Gemini** — you choose the provider and bring your own API key.
+Bring your own API key (Claude, OpenAI, or Gemini). The extension scans your project, detects your stack, and streams actionable feedback into four focused sections.
 
 ---
 
-## Setup
+## Features
 
-### 1. Install dependencies & build
+### Four review dimensions
 
-```bash
-npm install
-npm run build
-```
+| Section | What it checks |
+|--------|----------------|
+| **File structure** | Folder layout vs framework norms (apps, routers, blueprints, `src/`) |
+| **File names** | Casing, vague names (`utils.ts`), convention consistency |
+| **Variable naming** | Identifiers in sampled source — clarity, casing, patterns |
+| **Code modularity** | God files, coupling, missing layers, split/merge suggestions |
 
-### 2. Run in dev mode (fastest way to test)
+### Framework detection
 
-Open the `code-reviewer` folder in VS Code and press **F5**.  
-A new Extension Development Host window opens with the extension loaded.
+Reviews adapt to **your** stack — not generic advice that fights Django or Next.js conventions.
 
-### 3. Package as `.vsix` for permanent local install
+**Python:** Django, FastAPI, Flask, Starlette, Celery (related), or general Python  
 
-```bash
-npm run package
-# → outputs code-reviewer-0.0.1.vsix
-```
+**JavaScript / TypeScript:** Next.js, React, Vue, Nuxt, Angular, NestJS, Express, Svelte / SvelteKit, or general Node  
 
-**Install it:**
-```bash
-# VS Code
-code --install-extension code-reviewer-0.0.1.vsix
+Monorepos with multiple ecosystems pick the strongest match; related frameworks are listed as secondary signals.
 
-# Cursor
-cursor --install-extension code-reviewer-0.0.1.vsix
-```
+### Multi-provider LLM support
 
-Or: Extensions panel → `...` menu → **Install from VSIX...**
+| Provider | Model used | Settings key |
+|----------|------------|----------------|
+| [Claude](https://console.anthropic.com/) | Claude Sonnet 4 | `codeReviewer.claudeApiKey` |
+| [OpenAI](https://platform.openai.com/api-keys) | GPT-4o mini | `codeReviewer.openaiApiKey` |
+| [Gemini](https://aistudio.google.com/apikey) | Gemini 2.0 Flash | `codeReviewer.geminiApiKey` |
+
+Set default provider: `codeReviewer.provider` → `claude` | `openai` | `gemini`
+
+### Usage & cost tracking
+
+After each review, see:
+
+- Input and output **token counts** (from the provider API when available)
+- **Estimated USD cost** per review (list-price based; not a bill)
+- **Session totals** across reviews (stored locally in VS Code)
+
+Live estimates update while the response streams. Use **Reset session** in the panel or run **Code Reviewer: Reset Usage Session Totals** from the Command Palette.
+
+> Costs are estimates only — confirm spend on your Anthropic, OpenAI, or Google Cloud dashboard.
 
 ---
 
-## LLM provider & API keys
+## Quick start
 
-Pick a provider in the panel dropdown, then add the matching key:
+1. Install the extension (VSIX or Marketplace).
+2. Open a **workspace folder** (not just a single file).
+3. Click the **Code Reviewer** icon in the activity bar.
+4. Choose your **LLM provider** and paste an API key (or save it in Settings).
+5. Click **Review Workspace**.
 
-| Provider | Get a key | Settings key |
-|----------|-----------|--------------|
-| Claude | [console.anthropic.com](https://console.anthropic.com/) | `codeReviewer.claudeApiKey` |
-| OpenAI | [platform.openai.com](https://platform.openai.com/api-keys) | `codeReviewer.openaiApiKey` |
-| Gemini | [aistudio.google.com](https://aistudio.google.com/apikey) | `codeReviewer.geminiApiKey` |
+Results stream into collapsible sections. Framework detection appears in a badge above the review.
 
-**Option A — per session:** paste the key in the panel (not saved in the webview).
+---
 
-**Option B — save permanently:**  
-`Settings` → search `codeReviewer` → set `codeReviewer.provider` and the API key for your provider.  
-Keys are stored in VS Code user settings and sent only to that provider's API.
+## Configuration
 
-The legacy setting `codeReviewer.apiKey` still works as a fallback for Claude.
+Open **Settings** and search `codeReviewer`:
+
+```json
+{
+  "codeReviewer.provider": "claude",
+  "codeReviewer.claudeApiKey": "sk-ant-...",
+  "codeReviewer.openaiApiKey": "",
+  "codeReviewer.geminiApiKey": ""
+}
+```
+
+**Per-session keys:** paste in the panel input — not stored in the webview after reload.
+
+**Saved keys:** stored in VS Code **user settings** only; sent directly to the provider you select, not to any third-party server run by this extension.
+
+Legacy `codeReviewer.apiKey` still maps to Claude for backward compatibility.
 
 ---
 
 ## How it works
 
-1. Scans your workspace file tree (excludes `node_modules`, `.git`, `dist`, `.venv`, etc.)
-2. **Detects project framework** (Python and JavaScript/TypeScript stacks) from manifests, paths, and source patterns
-3. Reads dependency manifests + a sample of source files
-4. Sends a **framework-aware** prompt to your selected LLM (Claude, OpenAI, or Gemini)
-5. Streams the response into 4 collapsible sections in real time
+1. Scans the file tree (skips `node_modules`, `.git`, `dist`, `.venv`, build output, etc.).
+2. Reads `package.json`, `requirements.txt`, `pyproject.toml`, and similar manifests.
+3. Samples source files for naming and modularity patterns.
+4. Detects the primary framework and injects stack-specific rules into the prompt.
+5. Streams the LLM response into four markdown sections.
+6. Records token usage and estimated cost for the review and session.
 
-### Framework detection
+---
 
-**Python**
+## Supported frameworks (detection signals)
 
-| Framework | Signals (examples) |
-|-----------|-------------------|
-| **Django** | `manage.py`, `settings.py`, `django` in requirements |
-| **FastAPI** | `fastapi` dep, `FastAPI()`, `APIRouter` |
-| **Flask** | `flask` dep, `Flask(__name__)`, Blueprints |
-| **Starlette** | Often secondary to FastAPI |
-| **Celery** | Related stack when detected |
-| **Python (general)** | `.py` without a strong web framework match |
+<details>
+<summary><strong>Python</strong></summary>
 
-**JavaScript / TypeScript**
+| Framework | Examples |
+|-----------|----------|
+| Django | `manage.py`, `settings.py`, `django` in deps, `INSTALLED_APPS` |
+| FastAPI | `fastapi`, `FastAPI()`, `APIRouter` |
+| Flask | `flask`, `Flask(__name__)`, Blueprints |
+| Starlette | Often secondary to FastAPI |
+| Celery | Related stack when tasks/broker detected |
+| Python (general) | `.py` without a strong web framework match |
 
-| Framework | Signals (examples) |
-|-----------|-------------------|
-| **Next.js** | `next` dep, `next.config`, `app/` or `pages/` |
-| **React** | `react` dep, `.tsx`/`.jsx`, component patterns |
-| **Vue** | `vue` dep, `.vue` SFCs, `createApp` |
-| **Nuxt** | `nuxt` dep, `nuxt.config`, `pages/` |
-| **Angular** | `@angular/core`, `angular.json`, `@Component` |
-| **NestJS** | `@nestjs/core`, `@Module`, `NestFactory` |
-| **Express** | `express` dep, `app.get` / routers |
-| **Svelte** | `svelte` / SvelteKit, `.svelte` files |
-| **Node (general)** | `package.json` without a strong framework match |
+</details>
 
-Monorepos with both Python and JS pick the **highest-confidence** primary framework; others appear as related stacks.
+<details>
+<summary><strong>JavaScript / TypeScript</strong></summary>
 
-Add detectors under `src/detection/python/detectors/` and `src/detection/javascript/detectors/`.
+| Framework | Examples |
+|-----------|----------|
+| Next.js | `next`, `next.config`, `app/` or `pages/` |
+| React | `react`, `.tsx` / `.jsx`, hooks and components |
+| Vue | `vue`, `.vue` SFCs, `createApp` |
+| Nuxt | `nuxt`, `nuxt.config` |
+| Angular | `@angular/core`, `angular.json` |
+| NestJS | `@nestjs/core`, `@Module` |
+| Express | `express`, routers and middleware |
+| Svelte | `svelte`, SvelteKit, `.svelte` |
+| Node (general) | `package.json` without a strong framework match |
 
-## Project structure
+</details>
+
+---
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| **Code Reviewer: Reset Usage Session Totals** | Clears persisted token/cost session counters |
+
+---
+
+## Development
+
+```bash
+npm install
+npm run build      # compile extension
+npm run watch      # rebuild on change
+npm run package    # produce .vsix
+```
+
+Press **F5** in VS Code with this folder open to launch an Extension Development Host.
+
+### Project layout
 
 ```
 src/
-  extension.ts              # Activation entry
-  panel/                    # Webview UI
-  config/                   # Settings & API keys
-  workspace/                # File tree & sampling
-  detection/                # Framework detection
-    shared/                 # Manifest parsing, path utils
-    python/detectors/        # Django, FastAPI, Flask, …
-    javascript/detectors/   # Next.js, React, Vue, NestJS, …
-  prompts/
-    python/                 # Python framework rules
-    javascript/             # JS/TS framework rules
-  llm/                      # Provider streaming (Claude, OpenAI, Gemini)
-  review/                   # Review orchestration
+  extension.ts           # Activation
+  panel/                 # Webview UI
+  config/                # Provider settings
+  workspace/             # Scan & context building
+  detection/             # Python & JS/TS framework detectors
+  prompts/               # Framework-aware LLM prompts
+  llm/                   # Claude, OpenAI, Gemini streaming
+  usage/                 # Tokens, pricing, session totals
+  review/                # Review orchestration
 ```
+
+Extend detection: add files under `src/detection/python/detectors/` or `src/detection/javascript/detectors/`, then register guidelines in `src/prompts/`.
+
+---
+
+## Privacy
+
+- API keys stay in your editor settings or session input.
+- Workspace file paths and code **samples** are sent to **your chosen LLM provider** when you run a review.
+- No analytics or telemetry are sent to the extension publisher by this codebase.
+
+---
+
+## Disclaimer
+
+AI suggestions are starting points — validate before large refactors. Estimated costs may differ from your provider invoice.
+
+---
+
+## Repository
+
+https://github.com/FaixyX/code_reviewer_extension

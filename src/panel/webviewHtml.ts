@@ -210,6 +210,66 @@ export function getWebviewHtml(): string {
     margin-left: 1px;
   }
   @keyframes blink { 50% { opacity: 0; } }
+
+  .usage-panel {
+    display: none;
+    font-size: 10px;
+    padding: 8px 10px;
+    margin-bottom: 12px;
+    border-radius: 4px;
+    border: 1px solid var(--vscode-panel-border, #333);
+    background: var(--vscode-editor-inactiveSelectionBackground, #2a2d2e);
+    line-height: 1.5;
+  }
+  .usage-panel.visible { display: block; }
+  .usage-panel .usage-title {
+    font-weight: 600;
+    font-size: 11px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .usage-panel .usage-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 10px;
+    margin-bottom: 6px;
+  }
+  .usage-panel .usage-label { color: var(--vscode-descriptionForeground); }
+  .usage-panel .usage-value { font-weight: 600; text-align: right; }
+  .usage-panel .usage-total {
+    padding-top: 6px;
+    border-top: 1px solid var(--vscode-panel-border, #333);
+    display: flex;
+    justify-content: space-between;
+    font-weight: 600;
+    font-size: 11px;
+  }
+  .usage-panel .usage-session {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--vscode-panel-border, #444);
+    color: var(--vscode-descriptionForeground);
+    font-size: 9px;
+  }
+  .usage-panel .usage-note {
+    font-size: 9px;
+    color: var(--vscode-descriptionForeground);
+    margin-top: 4px;
+    font-style: italic;
+  }
+  .usage-clear {
+    background: none;
+    border: none;
+    color: var(--vscode-textLink-foreground);
+    font-size: 9px;
+    cursor: pointer;
+    padding: 0;
+    font-family: inherit;
+  }
+  .usage-clear:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -248,6 +308,30 @@ export function getWebviewHtml(): string {
 </button>
 
 <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+
+<div id="usagePanel" class="usage-panel">
+  <div class="usage-title">
+    <span>💳 AI usage</span>
+    <button type="button" class="usage-clear" onclick="clearUsage()" title="Reset session totals">Reset session</button>
+  </div>
+  <div class="usage-grid">
+    <span class="usage-label">Input tokens</span>
+    <span class="usage-value" id="usageInput">—</span>
+    <span class="usage-label">Output tokens</span>
+    <span class="usage-value" id="usageOutput">—</span>
+    <span class="usage-label">Input cost</span>
+    <span class="usage-value" id="usageInputCost">—</span>
+    <span class="usage-label">Output cost</span>
+    <span class="usage-value" id="usageOutputCost">—</span>
+  </div>
+  <div class="usage-total">
+    <span>This review</span>
+    <span id="usageReviewTotal">—</span>
+  </div>
+  <div class="usage-session" id="usageSessionLine">Session: 0 reviews · $0.00 total</div>
+  <div class="usage-note" id="usageNote"></div>
+</div>
+
 <div id="errorBox"></div>
 
 <div class="section" id="sec-structure">
@@ -323,6 +407,34 @@ export function getWebviewHtml(): string {
     vscode.postMessage({ command: 'openSettings', provider: getProvider() });
   }
 
+  function clearUsage() {
+    vscode.postMessage({ command: 'clearUsage' });
+  }
+
+  function showUsagePanel() {
+    document.getElementById('usagePanel').classList.add('visible');
+  }
+
+  function updateUsageReview(review) {
+    if (!review) return;
+    showUsagePanel();
+    document.getElementById('usageInput').textContent = review.inputTokens;
+    document.getElementById('usageOutput').textContent = review.outputTokens;
+    document.getElementById('usageInputCost').textContent = review.inputCost;
+    document.getElementById('usageOutputCost').textContent = review.outputCost;
+    document.getElementById('usageReviewTotal').textContent = review.totalCost;
+    document.getElementById('usageNote').textContent =
+      review.model + ' · ' + review.sourceLabel;
+  }
+
+  function updateUsageSession(session) {
+    if (!session) return;
+    document.getElementById('usageSessionLine').textContent =
+      'Session: ' + session.reviewCount + ' review' + (session.reviewCount === 1 ? '' : 's') +
+      ' · ' + session.inputTokens + ' in / ' + session.outputTokens + ' out · ' +
+      session.totalCost + ' total';
+  }
+
   function setFrameworkBadge(summary, signals) {
     const badge = document.getElementById('frameworkBadge');
     document.getElementById('frameworkLabel').textContent = summary || '';
@@ -394,6 +506,33 @@ export function getWebviewHtml(): string {
     if (msg.type === 'config' && msg.provider) {
       document.getElementById('providerSelect').value = msg.provider;
       updateProviderUi(false);
+      if (msg.session) {
+        showUsagePanel();
+        updateUsageSession(msg.session);
+      }
+    }
+
+    if (msg.type === 'sessionUsage' && msg.session) {
+      updateUsageSession(msg.session);
+    }
+
+    if (msg.type === 'usageReset') {
+      document.getElementById('usageInput').textContent = '…';
+      document.getElementById('usageOutput').textContent = '…';
+      document.getElementById('usageInputCost').textContent = '…';
+      document.getElementById('usageOutputCost').textContent = '…';
+      document.getElementById('usageReviewTotal').textContent = '…';
+      document.getElementById('usageNote').textContent = 'Calculating…';
+      showUsagePanel();
+    }
+
+    if (msg.type === 'usagePreview' && msg.review) {
+      updateUsageReview(msg.review);
+    }
+
+    if (msg.type === 'usageFinal') {
+      if (msg.review) updateUsageReview(msg.review);
+      if (msg.session) updateUsageSession(msg.session);
     }
 
     if (msg.type === 'detecting') {
