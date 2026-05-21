@@ -1,9 +1,10 @@
 {
   "name": "code-reviewer",
   "displayName": "Code Reviewer",
-  "description": "Framework-aware AI workspace reviews: file structure, naming, modularity. Claude, OpenAI, or Gemini. Tracks token usage and estimated cost.",
-  "version": "0.0.1",
-  "publisher": "xirvo.co",
+  "description": "Framework-aware AI reviews (Python, JS/TS, PHP). Claude, OpenAI, Gemini, or local models. Save API keys in Settings. Usage & cost tracking.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "publisher": "xirvo",
   "repository": {
     "type": "git",
     "url": "https://github.com/FaixyX/code_reviewer_extension.git"
@@ -66,14 +67,21 @@
       "properties": {
         "codeReviewer.provider": {
           "type": "string",
-          "enum": ["claude", "openai", "gemini"],
+          "enum": ["claude", "openai", "gemini", "custom"],
           "enumDescriptions": [
             "Anthropic Claude",
             "OpenAI GPT",
-            "Google Gemini"
+            "Google Gemini",
+            "Custom / local OpenAI-compatible API (Ollama, LM Studio, vLLM, etc.)"
           ],
           "default": "claude",
           "description": "Default LLM provider for workspace reviews.",
+          "scope": "application"
+        },
+        "codeReviewer.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "API key for the **currently selected** provider. Also mirrored when you save a key from the panel. Per-provider keys: `claudeApiKey`, `openaiApiKey`, `geminiApiKey`, `customApiKey`.",
           "scope": "application"
         },
         "codeReviewer.claudeApiKey": {
@@ -94,19 +102,30 @@
           "markdownDescription": "[Google AI Studio](https://aistudio.google.com/apikey) Gemini API key. Stored locally in user settings.",
           "scope": "application"
         },
-        "codeReviewer.apiKey": {
+        "codeReviewer.customApiKey": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Deprecated — use `codeReviewer.claudeApiKey` instead.",
-          "scope": "application",
-          "deprecationMessage": "Use codeReviewer.claudeApiKey"
+          "markdownDescription": "API key for custom/local endpoint (optional — Ollama often needs none).",
+          "scope": "application"
+        },
+        "codeReviewer.customBaseUrl": {
+          "type": "string",
+          "default": "http://localhost:11434/v1",
+          "markdownDescription": "OpenAI-compatible API base URL (e.g. Ollama `http://localhost:11434/v1`, LM Studio `http://localhost:1234/v1`).",
+          "scope": "application"
+        },
+        "codeReviewer.customModel": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Model id for custom provider (e.g. `llama3.2`, `mistral`, `gpt-4o-mini`).",
+          "scope": "application"
         }
       }
     }
   },
   "scripts": {
-    "build": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
-    "watch": "npm run build -- --watch",
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
     "package": "npm run build && vsce package",
     "vscode:prepublish": "npm run build"
   },
@@ -114,7 +133,6 @@
     "@types/node": "^18.0.0",
     "@types/vscode": "^1.74.0",
     "@vscode/vsce": "^2.22.0",
-    "esbuild": "^0.20.0",
     "typescript": "^5.0.0"
   }
 }

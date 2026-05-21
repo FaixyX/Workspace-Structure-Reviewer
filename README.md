@@ -1,8 +1,57 @@
 # Code Reviewer
 
-**Framework-aware AI workspace reviews** for VS Code and Cursor — structure, naming, modularity, and estimated API spend in one side panel.
+**Framework-aware AI workspace reviews** for VS Code and Cursor — file structure, naming, modularity, and estimated API spend in one side panel.
 
-Bring your own API key (Claude, OpenAI, or Gemini). The extension scans your project, detects your stack, and streams actionable feedback into four focused sections.
+Detects **Python, JavaScript/TypeScript, and PHP** stacks (Django, Next.js, Laravel, and more), then streams tailored feedback into four collapsible sections.
+
+---
+
+## Setup — API keys
+
+Choose a provider in the activity bar panel, then add a key:
+
+| Provider | Get a key | Settings |
+|----------|-----------|----------|
+| **Claude** | [console.anthropic.com](https://console.anthropic.com/) | `codeReviewer.claudeApiKey` |
+| **OpenAI** | [platform.openai.com](https://platform.openai.com/api-keys) | `codeReviewer.openaiApiKey` |
+| **Gemini** | [aistudio.google.com](https://aistudio.google.com/apikey) | `codeReviewer.geminiApiKey` |
+| **Custom / local** | Ollama, LM Studio, vLLM, etc. | `codeReviewer.customBaseUrl`, `codeReviewer.customModel`, optional `codeReviewer.customApiKey` |
+
+**Save in Settings**
+
+- Paste your key in the panel → click **Save API key to Settings**
+- Writes **`codeReviewer.apiKey`** (active key) **and** the key for the selected provider
+- Or edit directly: **Settings** → search `codeReviewer`
+
+**Per-session use:** paste a key in the panel without saving — it is used for that review only.
+
+**Local model (Ollama):** provider **Custom / Local**, base URL `http://localhost:11434/v1`, model e.g. `llama3.2`, API key usually empty.
+
+Keys stay in VS Code user settings. Reviews send workspace samples only to **your chosen API** (Anthropic, OpenAI, Google, or your local server) — not to the extension author.
+
+---
+
+## How it works
+
+1. Scans your workspace file tree (excludes `node_modules`, `.git`, `dist`, `.venv`, etc.).
+2. Reads dependency manifests (`package.json`, `composer.json`, `requirements.txt`, …).
+3. Samples source files for naming and modularity (up to 20 files).
+4. **Detects your framework** (e.g. FastAPI, Next.js, Laravel) and applies stack-specific review rules.
+5. Sends a structured prompt to **your selected model:**
+   - Claude → Sonnet 4  
+   - OpenAI → GPT-4o mini  
+   - Gemini → 2.0 Flash  
+   - Custom → any OpenAI-compatible local/cloud endpoint  
+6. Streams the response into **4 sections** in real time and shows **token usage / estimated cost**.
+
+---
+
+## Quick start
+
+1. Open a **workspace folder**.
+2. Click the **Code Reviewer** icon in the activity bar.
+3. Select provider, enter API key (or use a saved key), click **Save** if you want it in Settings.
+4. Click **Review Workspace**.
 
 ---
 
@@ -19,81 +68,36 @@ Bring your own API key (Claude, OpenAI, or Gemini). The extension scans your pro
 
 ### Framework detection
 
-Reviews adapt to **your** stack — not generic advice that fights Django or Next.js conventions.
+| Ecosystem | Frameworks |
+|-----------|------------|
+| **Python** | Django, FastAPI, Flask, Starlette, Celery (related), general Python |
+| **JavaScript / TypeScript** | Next.js, React, Vue, Nuxt, Angular, NestJS, Express, SvelteKit, general Node |
+| **PHP** | Laravel, Symfony, CodeIgniter, WordPress, Drupal, Slim, general PHP |
 
-**Python:** Django, FastAPI, Flask, Starlette, Celery (related), or general Python  
-
-**JavaScript / TypeScript:** Next.js, React, Vue, Nuxt, Angular, NestJS, Express, Svelte / SvelteKit, or general Node  
-
-**PHP:** Laravel, Symfony, CodeIgniter, WordPress, Drupal, Slim, or general PHP  
-
-Monorepos with multiple ecosystems pick the strongest match; related frameworks are listed as secondary signals.
-
-### Multi-provider LLM support
-
-| Provider | Model used | Settings key |
-|----------|------------|----------------|
-| [Claude](https://console.anthropic.com/) | Claude Sonnet 4 | `codeReviewer.claudeApiKey` |
-| [OpenAI](https://platform.openai.com/api-keys) | GPT-4o mini | `codeReviewer.openaiApiKey` |
-| [Gemini](https://aistudio.google.com/apikey) | Gemini 2.0 Flash | `codeReviewer.geminiApiKey` |
-
-Set default provider: `codeReviewer.provider` → `claude` | `openai` | `gemini`
+Monorepos: highest-confidence framework wins; others listed as related.
 
 ### Usage & cost tracking
 
-After each review, see:
-
-- Input and output **token counts** (from the provider API when available)
-- **Estimated USD cost** per review (list-price based; not a bill)
-- **Session totals** across reviews (stored locally in VS Code)
-
-Live estimates update while the response streams. Use **Reset session** in the panel or run **Code Reviewer: Reset Usage Session Totals** from the Command Palette.
-
-> Costs are estimates only — confirm spend on your Anthropic, OpenAI, or Google Cloud dashboard.
+- Input/output **tokens** (from API when available, else estimated)
+- **Estimated USD** per review (list prices; not a bill)
+- **Session totals** (local) — reset via panel or **Code Reviewer: Reset Usage Session Totals**
 
 ---
 
-## Quick start
-
-1. Install the extension (VSIX or Marketplace).
-2. Open a **workspace folder** (not just a single file).
-3. Click the **Code Reviewer** icon in the activity bar.
-4. Choose your **LLM provider** and paste an API key (or save it in Settings).
-5. Click **Review Workspace**.
-
-Results stream into collapsible sections. Framework detection appears in a badge above the review.
-
----
-
-## Configuration
-
-Open **Settings** and search `codeReviewer`:
+## Configuration example
 
 ```json
 {
   "codeReviewer.provider": "claude",
+  "codeReviewer.apiKey": "your-active-key",
   "codeReviewer.claudeApiKey": "sk-ant-...",
-  "codeReviewer.openaiApiKey": "",
-  "codeReviewer.geminiApiKey": ""
+  "codeReviewer.openaiApiKey": "sk-...",
+  "codeReviewer.geminiApiKey": "AIza...",
+  "codeReviewer.customBaseUrl": "http://localhost:11434/v1",
+  "codeReviewer.customModel": "llama3.2",
+  "codeReviewer.customApiKey": ""
 }
 ```
-
-**Per-session keys:** paste in the panel input — not stored in the webview after reload.
-
-**Saved keys:** stored in VS Code **user settings** only; sent directly to the provider you select, not to any third-party server run by this extension.
-
-Legacy `codeReviewer.apiKey` still maps to Claude for backward compatibility.
-
----
-
-## How it works
-
-1. Scans the file tree (skips `node_modules`, `.git`, `dist`, `.venv`, build output, etc.).
-2. Reads `package.json`, `requirements.txt`, `pyproject.toml`, and similar manifests.
-3. Samples source files for naming and modularity patterns.
-4. Detects the primary framework and injects stack-specific rules into the prompt.
-5. Streams the LLM response into four markdown sections.
-6. Records token usage and estimated cost for the review and session.
 
 ---
 
@@ -104,11 +108,11 @@ Legacy `codeReviewer.apiKey` still maps to Claude for backward compatibility.
 
 | Framework | Examples |
 |-----------|----------|
-| Django | `manage.py`, `settings.py`, `django` in deps, `INSTALLED_APPS` |
+| Django | `manage.py`, `settings.py`, `django` in deps |
 | FastAPI | `fastapi`, `FastAPI()`, `APIRouter` |
 | Flask | `flask`, `Flask(__name__)`, Blueprints |
 | Starlette | Often secondary to FastAPI |
-| Celery | Related stack when tasks/broker detected |
+| Celery | Tasks/broker detected |
 | Python (general) | `.py` without a strong web framework match |
 
 </details>
@@ -119,14 +123,12 @@ Legacy `codeReviewer.apiKey` still maps to Claude for backward compatibility.
 | Framework | Examples |
 |-----------|----------|
 | Next.js | `next`, `next.config`, `app/` or `pages/` |
-| React | `react`, `.tsx` / `.jsx`, hooks and components |
-| Vue | `vue`, `.vue` SFCs, `createApp` |
-| Nuxt | `nuxt`, `nuxt.config` |
+| React | `react`, `.tsx` / `.jsx` |
+| Vue / Nuxt | `.vue`, `nuxt.config` |
 | Angular | `@angular/core`, `angular.json` |
-| NestJS | `@nestjs/core`, `@Module` |
-| Express | `express`, routers and middleware |
-| Svelte | `svelte`, SvelteKit, `.svelte` |
-| Node (general) | `package.json` without a strong framework match |
+| NestJS / Express | `@nestjs/core`, `express` routes |
+| Svelte | SvelteKit, `.svelte` |
+| Node (general) | `package.json` only |
 
 </details>
 
@@ -135,13 +137,13 @@ Legacy `codeReviewer.apiKey` still maps to Claude for backward compatibility.
 
 | Framework | Examples |
 |-----------|----------|
-| Laravel | `artisan`, `app/Http/Controllers`, `laravel/framework` in Composer |
-| Symfony | `symfony/*` packages, `config/packages`, `#[Route]` attributes |
-| CodeIgniter | `codeigniter4/framework`, `app/Controllers`, `writable/` |
-| WordPress | `wp-config.php`, `wp-content/themes`, hooks (`add_action`) |
-| Drupal | `drupal/core`, `sites/default`, custom `modules/` |
-| Slim | `slim/slim`, `Slim\App`, PSR-7 routes |
-| PHP (general) | `.php` + `composer.json` without a strong framework match |
+| Laravel | `artisan`, `laravel/framework`, `app/Http/Controllers` |
+| Symfony | `symfony/*`, `config/packages`, `#[Route]` |
+| CodeIgniter | `codeigniter4`, `app/Controllers` |
+| WordPress | `wp-config.php`, `wp-content/` |
+| Drupal | `drupal/core`, `sites/default` |
+| Slim | `slim/slim`, PSR-7 routes |
+| PHP (general) | `.php` + Composer, no strong match |
 
 </details>
 
@@ -151,7 +153,7 @@ Legacy `codeReviewer.apiKey` still maps to Claude for backward compatibility.
 
 | Command | Description |
 |---------|-------------|
-| **Code Reviewer: Reset Usage Session Totals** | Clears persisted token/cost session counters |
+| **Code Reviewer: Reset Usage Session Totals** | Clears persisted token/cost counters |
 
 ---
 
@@ -159,44 +161,19 @@ Legacy `codeReviewer.apiKey` still maps to Claude for backward compatibility.
 
 ```bash
 npm install
-npm run build      # compile extension
-npm run watch      # rebuild on change
-npm run package    # produce .vsix
+npm run build
+npm run package   # → code-reviewer-0.1.0.vsix
 ```
 
-Press **F5** in VS Code with this folder open to launch an Extension Development Host.
-
-### Project layout
-
-```
-src/
-  extension.ts           # Activation
-  panel/                 # Webview UI
-  config/                # Provider settings
-  workspace/             # Scan & context building
-  detection/             # Python, JS/TS & PHP framework detectors
-    php/detectors/       # Laravel, Symfony, WordPress, …
-  prompts/               # Framework-aware LLM prompts
-  llm/                   # Claude, OpenAI, Gemini streaming
-  usage/                 # Tokens, pricing, session totals
-  review/                # Review orchestration
-```
-
-Extend detection: add detectors under `src/detection/python/detectors/`, `javascript/detectors/`, or `php/detectors/`, then add matching guidelines in `src/prompts/`.
+Press **F5** to run in Extension Development Host.
 
 ---
 
 ## Privacy
 
-- API keys stay in your editor settings or session input.
-- Workspace file paths and code **samples** are sent to **your chosen LLM provider** when you run a review.
-- No analytics or telemetry are sent to the extension publisher by this codebase.
-
----
-
-## Disclaimer
-
-AI suggestions are starting points — validate before large refactors. Estimated costs may differ from your provider invoice.
+- API keys in VS Code settings or panel session only.
+- Code samples sent to **your** LLM endpoint when you run a review.
+- No telemetry to the extension publisher.
 
 ---
 

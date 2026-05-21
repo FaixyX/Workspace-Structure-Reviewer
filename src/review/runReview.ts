@@ -1,4 +1,4 @@
-import { missingKeyMessage, resolveApiKey } from '../config/providerConfig';
+import { missingKeyMessage, resolveConnection } from '../config/providerConfig';
 import { streamReview } from '../llm/stream';
 import { ProviderId } from '../llm/types';
 import { REVIEW_SYSTEM_PROMPT, buildReviewUserPrompt } from '../prompts/reviewPrompt';
@@ -30,8 +30,8 @@ export async function runReview(
   sessionStore: UsageSessionStore,
   callbacks: ReviewCallbacks
 ): Promise<void> {
-  const apiKey = resolveApiKey(provider, inlineApiKey);
-  if (!apiKey) {
+  const connection = resolveConnection(provider, inlineApiKey);
+  if (!connection) {
     callbacks.onError(missingKeyMessage(provider));
     return;
   }
@@ -52,13 +52,15 @@ export async function runReview(
 
   const userPrompt = buildReviewUserPrompt(scan.contextText, scan.stack);
   const inputText = REVIEW_SYSTEM_PROMPT + userPrompt;
-  const model = getModelId(provider);
+  const modelLabel =
+    connection.provider === 'custom'
+      ? (connection.model ?? 'custom-local')
+      : getModelId(connection.provider);
   let outputText = '';
 
   try {
     const result = await streamReview(
-      provider,
-      apiKey,
+      connection,
       REVIEW_SYSTEM_PROMPT,
       userPrompt,
       (text) => {
@@ -66,11 +68,11 @@ export async function runReview(
         callbacks.onChunk(text);
 
         const estimated = buildEstimatedUsage(inputText, outputText);
-        const cost = calculateCost(model, estimated);
+        const cost = calculateCost(modelLabel, estimated);
         callbacks.onUsagePreview(
           buildPreviewPayload(
-            provider,
-            model,
+            connection.provider,
+            modelLabel,
             estimated.inputTokens,
             estimated.outputTokens,
             cost.inputUsd,
@@ -80,7 +82,7 @@ export async function runReview(
       }
     );
 
-    const { report, session } = sessionStore.recordReview(provider, result.usage);
+    const { report, session } = sessionStore.recordReview(connection.provider, result.usage);
     callbacks.onUsageFinal(
       toUsageDisplayPayload({ review: report, session })
     );

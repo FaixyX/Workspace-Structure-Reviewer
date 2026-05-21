@@ -12,6 +12,7 @@ const DEFAULT_BY_PROVIDER: Record<ProviderId, { inputPerM: number; outputPerM: n
   claude: { inputPerM: 3, outputPerM: 15 },
   openai: { inputPerM: 0.15, outputPerM: 0.6 },
   gemini: { inputPerM: 0.1, outputPerM: 0.4 },
+  custom: { inputPerM: 0, outputPerM: 0 },
 };
 
 export function getModelId(provider: ProviderId): string {
@@ -22,11 +23,13 @@ export function getModelId(provider: ProviderId): string {
       return 'gpt-4o-mini';
     case 'gemini':
       return 'gemini-2.0-flash';
+    case 'custom':
+      return 'custom-local';
   }
 }
 
 export function calculateCost(model: string, usage: TokenUsage): UsageCost {
-  const rates = MODEL_PRICING[model] ?? DEFAULT_BY_PROVIDER.claude;
+  const rates = MODEL_PRICING[model] ?? DEFAULT_BY_PROVIDER.custom;
   const inputUsd = (usage.inputTokens / 1_000_000) * rates.inputPerM;
   const outputUsd = (usage.outputTokens / 1_000_000) * rates.outputPerM;
   return {

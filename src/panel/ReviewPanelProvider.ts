@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
 import {
+  getProviderPanelState,
   getSelectedProvider,
   missingKeyMessage,
-  resolveApiKey,
+  resolveConnection,
+  saveApiKeyForProvider,
   saveSelectedProvider,
   settingsFilterForProvider,
 } from '../config/providerConfig';
@@ -10,7 +12,7 @@ import { isProviderId, ProviderId } from '../llm/types';
 import { runReview } from '../review/runReview';
 import { toUsageDisplayPayload } from '../usage/formatPayload';
 import { UsageSessionStore } from '../usage/sessionStore';
-import { getWebviewHtml } from './webviewHtml';
+import { loadWebviewHtml } from './loadWebviewHtml';
 
 export class ReviewPanelProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'codeReviewer.panel';
@@ -33,17 +35,35 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [this._extensionUri],
     };
 
-    webviewView.webview.html = getWebviewHtml();
+    webviewView.webview.html = loadWebviewHtml(this._extensionUri);
     this._sendInitialConfig();
 
     webviewView.webview.onDidReceiveMessage(async (message) => {
       switch (message.command) {
         case 'review':
-          await this._handleReview(message.provider, message.apiKey);
+          await this._handleReview(
+            message.provider,
+            message.apiKey,
+            message.customBaseUrl,
+            message.customModel
+          );
           break;
         case 'saveProvider':
           if (isProviderId(message.provider)) {
             await saveSelectedProvider(message.provider);
+            this._postProviderState(message.provider);
+          }
+          break;
+        case 'saveApiKey':
+          if (isProviderId(message.provider)) {
+            await saveApiKeyForProvider(message.provider, message.apiKey ?? '', {
+              customBaseUrl: message.customBaseUrl,
+              customModel: message.customModel,
+            });
+            void vscode.window.showInformationMessage(
+              `Code Reviewer: API key saved for ${message.provider} (and codeReviewer.apiKey).`
+            );
+            this._postProviderState(message.provider);
           }
           break;
         case 'openSettings':
@@ -82,9 +102,10 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
 
   private _sendInitialConfig(): void {
     const session = this._sessionStore.getTotals();
+    const provider = getSelectedProvider();
     this._post({
       type: 'config',
-      provider: getSelectedProvider(),
+      provider,
       session: {
         reviewCount: session.reviewCount,
         inputTokens: session.inputTokens.toLocaleString('en-US'),
@@ -94,10 +115,31 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
             ? `$${session.totalUsd.toFixed(4)}`
             : `$${session.totalUsd.toFixed(2)}`,
       },
+      ...this._providerStatePayload(provider),
     });
   }
 
-  private async _handleReview(providerRaw?: string, inlineApiKey?: string): Promise<void> {
+  private _postProviderState(provider: ProviderId): void {
+    this._post({ type: 'providerState', ...this._providerStatePayload(provider) });
+  }
+
+  private _providerStatePayload(provider: ProviderId): Record<string, unknown> {
+    const state = getProviderPanelState(provider);
+    return {
+      provider: state.provider,
+      hasSavedKey: state.hasSavedKey,
+      keyHint: state.keyHint,
+      customBaseUrl: state.customBaseUrl,
+      customModel: state.customModel,
+    };
+  }
+
+  private async _handleReview(
+    providerRaw?: string,
+    inlineApiKey?: string,
+    inlineBaseUrl?: string,
+    inlineModel?: string
+  ): Promise<void> {
     if (!this._view) return;
 
     const provider: ProviderId =
@@ -108,7 +150,11 @@ export class ReviewPanelProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    if (!resolveApiKey(provider, inlineApiKey)) {
+    const connection = resolveConnection(provider, inlineApiKey, {
+      customBaseUrl: inlineBaseUrl,
+      customModel: inlineModel,
+    });
+    if (!connection) {
       this._post({ type: 'error', text: missingKeyMessage(provider) });
       return;
     }

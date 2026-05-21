@@ -1,11 +1,4 @@
-import { PROVIDERS } from '../llm/types';
-
-export function getWebviewHtml(): string {
-  const providerOptions = PROVIDERS.map(
-    (p) => `<option value="${p.id}">${p.label}</option>`
-  ).join('');
-
-  return /* html */ `<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -65,7 +58,38 @@ export function getWebviewHtml(): string {
     min-width: 0;
   }
 
-  .api-row { display: flex; gap: 5px; margin-bottom: 8px; }
+  .api-row { display: flex; gap: 5px; margin-bottom: 6px; }
+
+  .custom-fields {
+    display: none;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 8px;
+  }
+  .custom-fields.visible { display: flex; }
+
+  .save-key-btn {
+    width: 100%;
+    background: var(--vscode-button-secondaryBackground, #3c3c3c);
+    color: var(--vscode-button-secondaryForeground, #ccc);
+    border: none;
+    border-radius: 3px;
+    padding: 5px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: inherit;
+    margin-bottom: 8px;
+  }
+  .save-key-btn:hover {
+    background: var(--vscode-button-secondaryHoverBackground, #505050);
+  }
+
+  .saved-hint {
+    font-size: 10px;
+    color: var(--vscode-testing-iconPassed, #73c991);
+    margin-bottom: 6px;
+    min-height: 14px;
+  }
 
   input[type="password"], input[type="text"] {
     flex: 1;
@@ -289,17 +313,24 @@ export function getWebviewHtml(): string {
 
 <div class="provider-row">
   <select id="providerSelect" onchange="onProviderChange()">
-    ${providerOptions}
+    <!-- PROVIDER_OPTIONS -->
   </select>
 </div>
 
+<div id="customFields" class="custom-fields">
+  <input type="text" id="customBaseUrl" placeholder="Base URL e.g. http://localhost:11434/v1" />
+  <input type="text" id="customModel" placeholder="Model id e.g. llama3.2" />
+</div>
+
 <div class="api-row">
-  <input type="password" id="apiKeyInput" placeholder="API key (or save in Settings)" />
+  <input type="password" id="apiKeyInput" placeholder="API key" />
   <button class="icon-btn" title="Open Settings" onclick="openSettings()">⚙</button>
 </div>
+<div id="savedKeyHint" class="saved-hint"></div>
+<button type="button" class="save-key-btn" onclick="saveApiKey()">Save API key to Settings</button>
 <div class="hint">
-  Keys stay in this session unless saved in Settings.
-  <a onclick="openSettings()">Open provider settings</a>
+  Saves to codeReviewer.apiKey and this provider’s key setting.
+  <a onclick="openSettings()">Open all settings</a>
 </div>
 
 <button id="reviewBtn" onclick="startReview()">
@@ -375,22 +406,57 @@ export function getWebviewHtml(): string {
   let fullText = '';
   let isStreaming = false;
 
-  const PLACEHOLDERS = { claude: 'sk-ant-api…', openai: 'sk-…', gemini: 'AIza…' };
+  const PLACEHOLDERS = {
+    claude: 'sk-ant-api…',
+    openai: 'sk-…',
+    gemini: 'AIza…',
+    custom: 'optional for Ollama / local',
+  };
 
   function getProvider() {
     return document.getElementById('providerSelect').value;
   }
 
-  function updateProviderUi(clearKey) {
-    const provider = getProvider();
-    document.getElementById('apiKeyInput').placeholder =
-      PLACEHOLDERS[provider] + ' (or save in Settings)';
-    if (clearKey) document.getElementById('apiKeyInput').value = '';
+  function applyProviderState(state) {
+    if (!state) return;
+    const provider = state.provider || getProvider();
+    document.getElementById('providerSelect').value = provider;
+
+    const isCustom = provider === 'custom';
+    document.getElementById('customFields').classList.toggle('visible', isCustom);
+    if (isCustom) {
+      if (state.customBaseUrl) document.getElementById('customBaseUrl').value = state.customBaseUrl;
+      if (state.customModel) document.getElementById('customModel').value = state.customModel;
+    }
+
+    document.getElementById('apiKeyInput').placeholder = PLACEHOLDERS[provider] || 'API key';
+    document.getElementById('apiKeyInput').value = '';
+
+    const hint = document.getElementById('savedKeyHint');
+    if (state.hasSavedKey && state.keyHint) {
+      hint.textContent = 'Saved in Settings ' + state.keyHint;
+    } else if (isCustom) {
+      hint.textContent = 'Set base URL & model (key optional)';
+    } else {
+      hint.textContent = '';
+    }
   }
 
   function onProviderChange() {
-    updateProviderUi(true);
     vscode.postMessage({ command: 'saveProvider', provider: getProvider() });
+  }
+
+  function saveApiKey() {
+    const payload = {
+      command: 'saveApiKey',
+      provider: getProvider(),
+      apiKey: document.getElementById('apiKeyInput').value.trim(),
+    };
+    if (getProvider() === 'custom') {
+      payload.customBaseUrl = document.getElementById('customBaseUrl').value.trim();
+      payload.customModel = document.getElementById('customModel').value.trim();
+    }
+    vscode.postMessage(payload);
   }
 
   function toggleSection(id) {
@@ -399,8 +465,16 @@ export function getWebviewHtml(): string {
 
   function startReview() {
     if (isStreaming) return;
-    const apiKey = document.getElementById('apiKeyInput').value.trim();
-    vscode.postMessage({ command: 'review', provider: getProvider(), apiKey });
+    const payload = {
+      command: 'review',
+      provider: getProvider(),
+      apiKey: document.getElementById('apiKeyInput').value.trim(),
+    };
+    if (getProvider() === 'custom') {
+      payload.customBaseUrl = document.getElementById('customBaseUrl').value.trim();
+      payload.customModel = document.getElementById('customModel').value.trim();
+    }
+    vscode.postMessage(payload);
   }
 
   function openSettings() {
@@ -504,12 +578,15 @@ export function getWebviewHtml(): string {
     const msg = event.data;
 
     if (msg.type === 'config' && msg.provider) {
-      document.getElementById('providerSelect').value = msg.provider;
-      updateProviderUi(false);
+      applyProviderState(msg);
       if (msg.session) {
         showUsagePanel();
         updateUsageSession(msg.session);
       }
+    }
+
+    if (msg.type === 'providerState') {
+      applyProviderState(msg);
     }
 
     if (msg.type === 'sessionUsage' && msg.session) {
@@ -570,5 +647,4 @@ export function getWebviewHtml(): string {
   });
 </script>
 </body>
-</html>`;
-}
+</html>
