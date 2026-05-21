@@ -6,7 +6,9 @@ export interface WorkspaceScanResult {
   manifestText: string;
   pythonSampleText: string;
   javascriptSampleText: string;
+  phpSampleText: string;
   hasPythonFiles: boolean;
   hasJavaScriptFiles: boolean;
+  hasPhpFiles: boolean;
   stack: StackDetectionResult;
 }

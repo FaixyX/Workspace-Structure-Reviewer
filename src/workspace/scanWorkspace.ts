@@ -4,8 +4,10 @@ import { isManifestPath, collectManifestText } from '../detection/shared/manifes
 import { detectStack } from '../detection/detectStack';
 import {
   JAVASCRIPT_EXTENSIONS,
+  PHP_EXTENSIONS,
   MAX_CHARS_PER_FILE,
   MAX_JAVASCRIPT_SAMPLES,
+  MAX_PHP_SAMPLES,
   MAX_PYTHON_SAMPLES,
   MAX_SOURCE_FILES,
   SOURCE_EXTENSIONS,
@@ -25,6 +27,7 @@ export async function scanWorkspace(): Promise<WorkspaceScanResult> {
   const fileContents = new Map<string, string>();
   const pythonPaths: string[] = [];
   const javascriptPaths: string[] = [];
+  const phpPaths: string[] = [];
   const sourcePaths: string[] = [];
 
   for (const file of allFiles) {
@@ -32,6 +35,7 @@ export async function scanWorkspace(): Promise<WorkspaceScanResult> {
     const ext = path.extname(file.fsPath).toLowerCase();
     if (ext === '.py') pythonPaths.push(rel);
     if (JAVASCRIPT_EXTENSIONS.has(ext)) javascriptPaths.push(rel);
+    if (PHP_EXTENSIONS.has(ext)) phpPaths.push(rel);
     if (SOURCE_EXTENSIONS.has(ext)) sourcePaths.push(rel);
   }
 
@@ -43,14 +47,16 @@ export async function scanWorkspace(): Promise<WorkspaceScanResult> {
   const sampleForReview = sourcePaths.slice(0, MAX_SOURCE_FILES);
   const pythonForDetection = pythonPaths.slice(0, MAX_PYTHON_SAMPLES);
   const jsForDetection = javascriptPaths.slice(0, MAX_JAVASCRIPT_SAMPLES);
+  const phpForDetection = phpPaths.slice(0, MAX_PHP_SAMPLES);
 
-  for (const p of [...sampleForReview, ...pythonForDetection, ...jsForDetection]) {
+  for (const p of [...sampleForReview, ...pythonForDetection, ...jsForDetection, ...phpForDetection]) {
     pathsToRead.add(p);
   }
 
   let fileContentsBlock = '';
   let pythonSampleText = '';
   let javascriptSampleText = '';
+  let phpSampleText = '';
 
   for (const rel of pathsToRead) {
     const uri = vscode.Uri.file(path.join(root, rel));
@@ -66,6 +72,9 @@ export async function scanWorkspace(): Promise<WorkspaceScanResult> {
       if (JAVASCRIPT_EXTENSIONS.has(path.extname(rel).toLowerCase())) {
         javascriptSampleText += `\n\n=== ${rel} ===\n${slice}`;
       }
+      if (PHP_EXTENSIONS.has(path.extname(rel).toLowerCase())) {
+        phpSampleText += `\n\n=== ${rel} ===\n${slice}`;
+      }
       if (sampleForReview.includes(rel)) {
         fileContentsBlock += `\n\n=== ${rel} ===\n${slice}`;
       }
@@ -77,14 +86,17 @@ export async function scanWorkspace(): Promise<WorkspaceScanResult> {
   const manifestText = collectManifestText(relativePaths, fileContents);
   const hasPythonFiles = pythonPaths.length > 0;
   const hasJavaScriptFiles = javascriptPaths.length > 0;
+  const hasPhpFiles = phpPaths.length > 0;
 
   const stack = detectStack({
     relativePaths,
     manifestText,
     pythonSampleText,
     javascriptSampleText,
+    phpSampleText,
     hasPythonFiles,
     hasJavaScriptFiles,
+    hasPhpFiles,
   });
 
   const stackBlock = formatStackBlock(stack);
@@ -101,8 +113,10 @@ export async function scanWorkspace(): Promise<WorkspaceScanResult> {
     manifestText,
     pythonSampleText,
     javascriptSampleText,
+    phpSampleText,
     hasPythonFiles,
     hasJavaScriptFiles,
+    hasPhpFiles,
     stack,
   };
 }

@@ -1,5 +1,7 @@
 import { detectJavaScriptStack } from './javascript/detectJavaScriptStack';
 import { JavaScriptWorkspaceContext } from './javascript/types';
+import { detectPhpStack } from './php/detectPhpStack';
+import { PhpWorkspaceContext } from './php/types';
 import { detectPythonStack } from './python/detectPythonStack';
 import { PythonWorkspaceContext } from './python/types';
 import { FrameworkMatch, StackDetectionResult } from './types';
@@ -9,13 +11,30 @@ export interface DetectionInput {
   manifestText: string;
   pythonSampleText: string;
   javascriptSampleText: string;
+  phpSampleText: string;
   hasPythonFiles: boolean;
   hasJavaScriptFiles: boolean;
+  hasPhpFiles: boolean;
 }
 
 interface EcosystemResult {
   primary: FrameworkMatch | null;
   secondary: FrameworkMatch[];
+}
+
+function ecosystemLabel(language: string): string {
+  switch (language) {
+    case 'python':
+      return 'Python';
+    case 'javascript':
+      return 'JavaScript/TypeScript';
+    case 'php':
+      return 'PHP';
+    case 'polyglot':
+      return 'Polyglot';
+    default:
+      return 'Unknown';
+  }
 }
 
 function mergeEcosystemResults(results: EcosystemResult[]): StackDetectionResult {
@@ -35,7 +54,7 @@ function mergeEcosystemResults(results: EcosystemResult[]): StackDetectionResult
 
   const primary = primaries[0];
   const language =
-    primaries.length > 1 && primaries[0].language !== primaries[1].language
+    primaries.length > 1 && new Set(primaries.map((p) => p.language)).size > 1
       ? 'polyglot'
       : primary.language;
 
@@ -59,18 +78,11 @@ function mergeEcosystemResults(results: EcosystemResult[]): StackDetectionResult
   const suffix =
     secondaryNames.length > 0 ? ` (also: ${secondaryNames.join(', ')})` : '';
 
-  const langLabel =
-    language === 'polyglot'
-      ? 'Polyglot'
-      : language === 'python'
-        ? 'Python'
-        : 'JavaScript/TypeScript';
-
   return {
     language,
     primary,
     secondary,
-    summary: `${langLabel} · ${primary.name} (${primary.confidence} confidence)${suffix}`,
+    summary: `${ecosystemLabel(language)} · ${primary.name} (${primary.confidence} confidence)${suffix}`,
   };
 }
 
@@ -97,12 +109,23 @@ export function detectStack(input: DetectionInput): StackDetectionResult {
     results.push(detectJavaScriptStack(jsCtx));
   }
 
+  if (input.hasPhpFiles) {
+    const phpCtx: PhpWorkspaceContext = {
+      relativePaths: input.relativePaths,
+      manifestText: input.manifestText,
+      phpSampleText: input.phpSampleText,
+      hasPhpFiles: true,
+    };
+    results.push(detectPhpStack(phpCtx));
+  }
+
   if (results.length === 0) {
     return {
       language: 'unknown',
       primary: null,
       secondary: [],
-      summary: 'No Python or JavaScript/TypeScript project detected — reviews use general best practices.',
+      summary:
+        'No Python, JavaScript/TypeScript, or PHP project detected — reviews use general best practices.',
     };
   }
 

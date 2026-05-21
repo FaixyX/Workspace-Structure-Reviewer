@@ -25,6 +25,8 @@ Reviews adapt to **your** stack — not generic advice that fights Django or Nex
 
 **JavaScript / TypeScript:** Next.js, React, Vue, Nuxt, Angular, NestJS, Express, Svelte / SvelteKit, or general Node  
 
+**PHP:** Laravel, Symfony, CodeIgniter, WordPress, Drupal, Slim, or general PHP  
+
 Monorepos with multiple ecosystems pick the strongest match; related frameworks are listed as secondary signals.
 
 ### Multi-provider LLM support
@@ -128,6 +130,21 @@ Legacy `codeReviewer.apiKey` still maps to Claude for backward compatibility.
 
 </details>
 
+<details>
+<summary><strong>PHP</strong></summary>
+
+| Framework | Examples |
+|-----------|----------|
+| Laravel | `artisan`, `app/Http/Controllers`, `laravel/framework` in Composer |
+| Symfony | `symfony/*` packages, `config/packages`, `#[Route]` attributes |
+| CodeIgniter | `codeigniter4/framework`, `app/Controllers`, `writable/` |
+| WordPress | `wp-config.php`, `wp-content/themes`, hooks (`add_action`) |
+| Drupal | `drupal/core`, `sites/default`, custom `modules/` |
+| Slim | `slim/slim`, `Slim\App`, PSR-7 routes |
+| PHP (general) | `.php` + `composer.json` without a strong framework match |
+
+</details>
+
 ---
 
 ## Commands
@@ -157,14 +174,15 @@ src/
   panel/                 # Webview UI
   config/                # Provider settings
   workspace/             # Scan & context building
-  detection/             # Python & JS/TS framework detectors
+  detection/             # Python, JS/TS & PHP framework detectors
+    php/detectors/       # Laravel, Symfony, WordPress, …
   prompts/               # Framework-aware LLM prompts
   llm/                   # Claude, OpenAI, Gemini streaming
   usage/                 # Tokens, pricing, session totals
   review/                # Review orchestration
 ```
 
-Extend detection: add files under `src/detection/python/detectors/` or `src/detection/javascript/detectors/`, then register guidelines in `src/prompts/`.
+Extend detection: add detectors under `src/detection/python/detectors/`, `javascript/detectors/`, or `php/detectors/`, then add matching guidelines in `src/prompts/`.
 
 ---
 

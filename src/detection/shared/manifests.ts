@@ -12,6 +12,8 @@ const MANIFEST_PATTERNS: RegExp[] = [
   /^setup\.py$/,
   /^setup\.cfg$/,
   /\/requirements\//,
+  /^composer\.json$/,
+  /^composer\.lock$/,
 ];
 
 export function isManifestPath(relPath: string): boolean {
