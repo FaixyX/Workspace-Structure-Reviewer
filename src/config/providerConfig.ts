@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { isProviderId, ProviderId } from './llm/types';
+import { isProviderId, ProviderId } from '../llm/types';
 
 const KEY_BY_PROVIDER: Record<ProviderId, string> = {
   claude: 'claudeApiKey',
@@ -28,7 +28,6 @@ export function resolveApiKey(
   const config = vscode.workspace.getConfiguration('codeReviewer');
   const key = config.get<string>(KEY_BY_PROVIDER[provider], '')?.trim() ?? '';
 
-  // Legacy single key maps to Claude
   if (!key && provider === 'claude') {
     return config.get<string>('apiKey', '')?.trim() ?? '';
   }
@@ -43,4 +42,10 @@ export function missingKeyMessage(provider: ProviderId): string {
 
 export function settingsFilterForProvider(provider: ProviderId): string {
   return `codeReviewer.${KEY_BY_PROVIDER[provider]}`;
+}
+
+export async function saveSelectedProvider(provider: ProviderId): Promise<void> {
+  await vscode.workspace
+    .getConfiguration('codeReviewer')
+    .update('provider', provider, vscode.ConfigurationTarget.Global);
 }

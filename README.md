@@ -67,7 +67,37 @@ The legacy setting `codeReviewer.apiKey` still works as a fallback for Claude.
 
 ## How it works
 
-1. Scans your workspace file tree (excludes `node_modules`, `.git`, `dist`, etc.)
-2. Reads a sample of source files (up to 20 files, 1500 chars each)
-3. Sends a structured prompt to your selected provider (Claude Sonnet, GPT-4o mini, or Gemini 2.0 Flash)
-4. Streams the response back into 4 collapsible sections in real time
+1. Scans your workspace file tree (excludes `node_modules`, `.git`, `dist`, `.venv`, etc.)
+2. **Detects Python framework** (Django, FastAPI, Flask, Starlette, or general Python) from dependencies, paths, and source patterns
+3. Reads dependency manifests + a sample of source files
+4. Sends a **framework-aware** prompt to your selected LLM (Claude, OpenAI, or Gemini)
+5. Streams the response into 4 collapsible sections in real time
+
+### Python framework detection (v1)
+
+| Framework | Signals (examples) |
+|-----------|-------------------|
+| **Django** | `manage.py`, `settings.py`, `django` in requirements, `INSTALLED_APPS` |
+| **FastAPI** | `fastapi` dep, `FastAPI()`, route decorators, `APIRouter` |
+| **Flask** | `flask` dep, `Flask(__name__)`, `@app.route`, Blueprints |
+| **Starlette** | `starlette` dep (often secondary to FastAPI) |
+| **Celery** | Listed as related stack when detected |
+| **Python (general)** | `.py` files but no strong web framework match |
+
+More frameworks and languages can be added under `src/detection/`.
+
+## Project structure
+
+```
+src/
+  extension.ts              # Activation entry
+  panel/                    # Webview UI
+  config/                   # Settings & API keys
+  workspace/                # File tree & sampling
+  detection/                # Framework detection
+    python/
+      detectors/            # Django, FastAPI, Flask, …
+  prompts/                  # LLM prompts & per-framework rules
+  llm/                      # Provider streaming (Claude, OpenAI, Gemini)
+  review/                   # Review orchestration
+```
