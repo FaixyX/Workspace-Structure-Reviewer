@@ -1,0 +1,54 @@
+{
+  "name": "code-reviewer",
+  "displayName": "Code Reviewer",
+  "description": "AI-powered review of file structure, naming conventions, variables, and modularity",
+  "version": "0.0.1",
+  "publisher": "xirvo.co",
+  "engines": { "vscode": "^1.74.0" },
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "code-reviewer",
+          "title": "Code Reviewer",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "code-reviewer": [
+        {
+          "type": "webview",
+          "id": "codeReviewer.panel",
+          "name": "Code Review"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Code Reviewer",
+      "properties": {
+        "codeReviewer.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Your [Anthropic API key](https://console.anthropic.com/). Keep this private.",
+          "scope": "application"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "watch": "npm run build -- --watch",
+    "package": "npm run build && vsce package",
+    "vscode:prepublish": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.74.0",
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.0.0"
+  }
+}
